@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MicroGrid AQI | GenAI Hyperlocal RAG Navigator</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&family=Syne:wght@400..800&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --bg-space: #050508;
+            --panel-cosmic: #0d0e15;
+            --accent-neon: #00ffcc;
+            --accent-cyber: #8b5cf6;
+            --text-glow: #f3f4f6;
+            --text-dim: #6b7280;
+            --aqi-green: #00ff88;
+            --aqi-yellow: #ffcc00;
+            --aqi-orange: #ff6600;
+            --aqi-red: #ff3333;
+            --aqi-purple: #cc00ff;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Space Mono', monospace; }
+        h1, h2, h3, .syne-font { font-family: 'Syne', sans-serif; font-weight: 800; }
+
+        body {
+            background-color: var(--bg-space); color: var(--text-glow);
+            height: 100vh; overflow: hidden; display: flex;
+            background-image: linear-gradient(rgba(139, 92, 246, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(139, 92, 246, 0.03) 1px, transparent 1px);
+            background-size: 20px 20px; animation: gridMove 20s linear infinite;
+        }
+
+        @keyframes gridMove { 0% { background-position: 0 0; } 100% { background-position: 20px 20px; } }
+
+        #sidebar {
+            width: 450px; background: var(--panel-cosmic); border-right: 1px solid rgba(139, 92, 246, 0.2);
+            display: flex; flex-direction: column; z-index: 1000; box-shadow: 10px 0 30px rgba(0,0,0,0.7);
+        }
+
+        .header-panel { padding: 25px 20px; background: linear-gradient(180deg, #131422 0%, var(--panel-cosmic) 100%); border-bottom: 1px solid rgba(0, 255, 204, 0.2); }
+        
+        .pulse-dot {
+            width: 8px; height: 8px; background: var(--accent-neon); border-radius: 50%;
+            display: inline-block; margin-right: 8px; box-shadow: 0 0 10px var(--accent-neon); animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse { 0% { transform: scale(0.9); opacity: 0.6; } 50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 15px var(--accent-neon); } 100% { transform: scale(0.9); opacity: 0.6; } }
+
+        .tabs-nav { display: flex; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .tab-btn { flex: 1; background: none; border: none; padding: 12px 5px; color: var(--text-dim); font-size: 0.75rem; cursor: pointer; text-transform: uppercase; border-bottom: 2px solid transparent; }
+        .tab-btn.active { color: var(--accent-neon); border-bottom: 2px solid var(--accent-neon); background: rgba(0, 255, 204, 0.03); font-weight: bold; }
+        .tab-content { padding: 20px; flex-grow: 1; overflow-y: auto; display: none; }
+        .tab-content.active { display: block; }
+
+        .profile-selector { background: #12131f; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 15px; }
+        select { width: 100%; background: #1a1c2e; color: var(--accent-neon); border: 1px solid rgba(139, 92, 246, 0.4); padding: 8px; border-radius: 4px; outline: none; margin-top: 8px; font-weight: bold; }
+
+        .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .metric-card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 12px; border-radius: 6px; text-align: center; }
+
+        .source-bar-wrapper { margin-bottom: 12px; }
+        .source-info { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px; }
+        .progress-track { background: #1a1c2e; height: 6px; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--accent-cyber); border-radius: 3px; }
+
+        .airbot-terminal { height: 250px; border-top: 1px solid rgba(139, 92, 246, 0.2); background: #07080d; display: flex; flex-direction: column; }
+        .terminal-header { padding: 10px 15px; background: #0e0f1a; font-size: 0.8rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .chat-logs { flex-grow: 1; padding: 12px; overflow-y: auto; font-size: 0.8rem; display: flex; flex-direction: column; gap: 8px; }
+        
+        .chat-bubble { padding: 8px 12px; border-radius: 6px; max-width: 85%; word-wrap: break-word; }
+        .chat-bubble.user { background: #1a1c2e; align-self: flex-end; border-right: 3px solid var(--accent-neon); }
+        .chat-bubble.bot { background: rgba(139, 92, 246, 0.1); align-self: flex-start; border-left: 3px solid var(--accent-cyber); }
+
+        .terminal-input-bar { display: flex; padding: 8px; background: #0c0d14; border-top: 1px solid rgba(255,255,255,0.05); }
+        .terminal-input-bar input { flex-grow: 1; background: #131422; border: 1px solid rgba(255,255,255,0.1); color: white; padding: 8px; border-radius: 4px; outline: none; font-size: 0.8rem; }
+        .terminal-input-bar button { background: var(--accent-cyber); color: white; border: none; padding: 0 15px; margin-left: 5px; border-radius: 4px; cursor: pointer; }
+
+        .quick-chips { display: flex; gap: 5px; padding: 5px 12px; overflow-x: auto; background: #07080d; }
+        .chip { background: rgba(255,255,255,0.04); font-size: 0.7rem; padding: 3px 8px; border-radius: 12px; cursor: pointer; white-space: nowrap; border: 1px solid transparent; }
+        .chip:hover { border-color: var(--accent-neon); color: var(--accent-neon); }
+
+        #map { flex-grow: 1; height: 100vh; background: #0a0a10; }
+        
+        .leaflet-popup-content-wrapper { background: var(--panel-cosmic) !important; color: white !important; border: 1px solid var(--accent-cyber); border-radius: 8px !important; font-family: 'Space Mono', monospace !important; }
+        .leaflet-popup-tip { background: var(--panel-cosmic) !important; }
+        .spinner { animation: spin 1s linear infinite; display: inline-block; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <div class="header-panel">
+            <h1 class="syne-font" style="font-size: 1.6rem; letter-spacing: -0.5px;">MICROGRID<span style="color:var(--accent-neon)">AQI</span></h1>
+            <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 4px;">
+                <span class="pulse-dot"></span>HYPERLOCAL RAG NODE ACTIVE
+            </div>
+        </div>
+
+        <div style="padding: 15px 20px 5px 20px;">
+            <div class="profile-selector">
+                <label style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase;"><i class="fa-solid fa-user-shield"></i> Target Health Profile</label>
+                <select id="healthProfile" onchange="updateProfileEffects()">
+                    <option value="Asthma">Asthma Patient (High Sensitivity)</option>
+                    <option value="Senior">Senior Citizen (Cardio Risk)</option>
+                    <option value="Athlete">Outdoor Athlete (High Ventilation)</option>
+                    <option value="Child">Child Development Guard</option>
+                    <option value="Healthy" selected>Healthy Adult (Standard Threshold)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="tabs-nav">
+            <button class="tab-btn active" onclick="switchTab('map-tab')">Grid Metrics</button>
+            <button class="tab-btn" onclick="switchTab('route-tab')">SafeRoute</button>
+            <button class="tab-btn" onclick="switchTab('forecast-tab')">6H Forecast</button>
+            <button class="tab-btn" onclick="switchTab('source-tab')">Sources</button>
+        </div>
+
+        <div id="map-tab" class="tab-content active">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div style="font-size: 0.7rem; color:var(--text-dim)">CURRENT CELL AQI</div>
+                    <div id="main-aqi-val" style="font-size: 1.8rem; font-weight: bold; color: var(--aqi-green); margin-top:5px;">85</div>
+                    <div id="aqi-status" style="font-size: 0.7rem; color: var(--text-dim)">MODERATE</div>
+                </div>
+                <div class="metric-card">
+                    <div style="font-size: 0.7rem; color:var(--text-dim)">PM2.5 DENSITY</div>
+                    <div id="main-pm-val" style="font-size: 1.8rem; font-weight: bold; color: var(--text-glow); margin-top:5px;">34 <span style="font-size:0.8rem">µg/m³</span></div>
+                    <div style="font-size: 0.7rem; color: var(--accent-neon)">LIVE OPENAQ API</div>
+                </div>
+            </div>
+            <div id="profile-warning" style="background: rgba(0, 255, 136, 0.1); border: 1px solid var(--aqi-green); padding: 12px; border-radius: 6px; font-size: 0.75rem;">
+                Conditions are optimal for your current health configuration.
+            </div>
+        </div>
+
+        <div id="route-tab" class="tab-content">
+            <h3 style="font-size: 0.9rem; margin-bottom: 12px; color: var(--accent-neon);">AI CLEANEST ROUTE NAVIGATION</h3>
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 12px; border-radius: 6px; margin-bottom: 10px;">
+                <div style="display:flex; justify-content:space-between; font-weight: bold; font-size: 0.85rem;">
+                    <span>Route Alpha (Highway Baseline)</span>
+                    <span style="color:var(--aqi-red)">AQI 184</span>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 4px;">Time: 12 mins | Impact Level: Extreme exposure risk.</div>
+            </div>
+            <div style="background: rgba(0, 255, 204, 0.05); border: 1px solid var(--accent-neon); padding: 12px; border-radius: 6px;">
+                <div style="display:flex; justify-content:space-between; font-weight: bold; font-size: 0.85rem;">
+                    <span><i class="fa-solid fa-leaf" style="color: var(--aqi-green);"></i> Route Cyber (Eco-Bypass)</span>
+                    <span style="color:var(--aqi-green)">AQI 52</span>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 4px;">Time: 15 mins | Bypasses industrial plume zones. Optimal choice.</div>
+            </div>
+        </div>
+
+        <div id="forecast-tab" class="tab-content">
+            <h3 style="font-size: 0.9rem; margin-bottom: 12px; color: var(--accent-neon);">PREDICTIVE TIME GRID MODEL</h3>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="display:flex; justify-content: space-between; font-size: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 5px;">
+                    <span>+2 Hours (Traffic Influx)</span> <span style="color: var(--aqi-yellow)">AQI 105</span>
+                </div>
+                <div style="display:flex; justify-content: space-between; font-size: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 5px;">
+                    <span>+4 Hours (Thermal Inversion)</span> <span style="color: var(--aqi-orange)">AQI 142</span>
+                </div>
+                <div style="display:flex; justify-content: space-between; font-size: 0.8rem; padding-bottom: 5px;">
+                    <span>+6 Hours (Wind Clearance)</span> <span style="color: var(--aqi-green)">AQI 65</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="source-tab" class="tab-content">
+            <h3 style="font-size: 0.9rem; margin-bottom: 15px; color: var(--accent-neon);">POLLUTION SOURCE ATTRIBUTION</h3>
+            <div class="source-bar-wrapper">
+                <div class="source-info"><span>Vehicular Emissions</span><span>35%</span></div>
+                <div class="progress-track"><div class="progress-fill" style="width: 35%; background: var(--aqi-orange)"></div></div>
+            </div>
+            <div class="source-bar-wrapper">
+                <div class="source-info"><span>Industrial Core Plumes</span><span>45%</span></div>
+                <div class="progress-track"><div class="progress-fill" style="width: 45%; background: var(--aqi-red)"></div></div>
+            </div>
+            <div class="source-bar-wrapper">
+                <div class="source-info"><span>Biomass Burn Processing</span><span>20%</span></div>
+                <div class="progress-track"><div class="progress-fill" style="width: 20%; background: var(--aqi-yellow)"></div></div>
+            </div>
+        </div>
+
+        <div class="quick-chips">
+            <span class="chip" onclick="applyQuickPrompt('Is my current location safe for an outdoor run?')">Run Check?</span>
+            <span class="chip" onclick="applyQuickPrompt('Analyze the primary source pollution spikes.')">Source Plumes?</span>
+            <span class="chip" onclick="applyQuickPrompt('What masks or rules apply to my health configuration?')">Health Advice?</span>
+        </div>
+        <div class="airbot-terminal">
+            <div class="terminal-header">
+                <span><i class="fa-solid fa-brain" style="color: var(--accent-cyber)"></i> AIRBOT RAG ENGINE v1.2</span>
+                <span id="api-indicator" style="color: var(--aqi-green); font-size: 0.7rem;"><i class="fa-solid fa-circle-check"></i> GEMINI LIVE</span>
+            </div>
+            <div class="chat-logs" id="chatLogs">
+                <div class="chat-bubble bot">
+                    AirBot Engine initialized. I have cross-referenced your profile with real-time vector coordinate context layers. Fire away.
+                </div>
+            </div>
+            <div class="terminal-input-bar">
+                <input type="text" id="botInput" placeholder="Query hyperlocal context layer...">
+                <button id="sendBtn" onclick="queryGeminiRAG()"><i class="fa-solid fa-terminal"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+    <script>
+        // 🔑 TO MAKE CHAT LIVE: Put your Gemini API Key here (e.g. "AIzaSy...")
+        const GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE";
+
+        // Global State Variables for RAG Prompt Context Injection
+        let currentAQI = 85;
+        let currentPM25 = 34;
+        let currentProfile = "Healthy";
+
+        // Initializing Map Layer using Leaflet
+        const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([26.2183, 78.1744], 13);
+
+        // Adding Cosmic Dark Grid Tiles
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
+
+        // Simulated Hyperlocal Grid Layer Data Construction
+        const gridWards = [
+            { name: "Ward Cell 04 - Core Industrial", coords: [26.2300, 78.1600], aqi: 184, status: "UNHEALTHY", pm: 112 },
+            { name: "Ward Cell 11 - University Complex", coords: [26.2183, 78.1744], aqi: 85, status: "MODERATE", pm: 34 },
+            { name: "Ward Cell 14 - Eco-Bypass Belt", coords: [26.2050, 78.1900], aqi: 52, status: "GOOD", pm: 15 },
+            { name: "Ward Cell 09 - Dense Commercial Line", coords: [26.2250, 78.1850], aqi: 142, status: "UNHEALTHY FOR SENSITIVE", pm: 68 }
+        ];
+
+        // Draw Interactive Grid Cells on Map
+        gridWards.forEach(ward => {
+            let cellColor = varColorSelector(ward.aqi);
+            let gridCell = L.circle(ward.coords, { color: cellColor, fillColor: cellColor, fillOpacity: 0.35, radius: 650 }).addTo(map);
+
+            // Custom Leaflet Popup Template Binding
+            gridCell.bindPopup(`
+                <div style="font-family:'Space Mono', monospace; min-width:180px;">
+                    <b style="color:var(--accent-neon); font-size:0.9rem;">${ward.name}</b><br/>
+                    <hr style="border-color:rgba(255,255,255,0.1); margin:6px 0;"/>
+                    <span style="font-size:0.8rem;">AQI Value: <span style="color:${cellColor}; font-weight:bold;">${ward.aqi}</span></span><br/>
+                    <span style="font-size:0.8rem;">PM2.5 Level: <b>${ward.pm} µg/m³</b></span><br/>
+                    <span style="font-size:0.7rem; color:var(--text-dim);">Status: ${ward.status}</span>
+                </div>
+            `);
+
+            // Event handler to capture grid state data on click
+            gridCell.on('click', () => {
+                currentAQI = ward.aqi; currentPM25 = ward.pm;
+                document.getElementById('main-aqi-val').innerText = ward.aqi;
+                document.getElementById('main-aqi-val').style.color = cellColor;
+                document.getElementById('main-pm-val').innerHTML = `${ward.pm} <span style="font-size:0.8rem">µg/m³</span>`;
+                document.getElementById('aqi-status').innerText = ward.status;
+                updateProfileEffects();
+            });
+        });
+
+        function varColorSelector(aqiValue) {
+            if (aqiValue <= 50) return '#00ff88';
+            if (aqiValue <= 100) return '#ffcc00';
+            if (aqiValue <= 150) return '#ff6600';
+            if (aqiValue <= 200) return '#ff3333';
+            return '#cc00ff';
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
+
+        function updateProfileEffects() {
+            currentProfile = document.getElementById('healthProfile').value;
+            const warningCard = document.getElementById('profile-warning');
+            
+            if (currentProfile === "Asthma" && currentAQI > 80) {
+                warningCard.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> CRITICAL SYSTEM WARNING: Current grid AQI (${currentAQI}) exceeds Asthma threshold. Bronchial inflammation index elevated. Stay Indoors.`;
+                warningCard.style.background = "rgba(255,51,51,0.15)"; warningCard.style.borderColor = "var(--aqi-red)"; warningCard.style.color = "var(--aqi-red)";
+            } else if (currentProfile === "Senior" && currentAQI > 100) {
+                warningCard.innerHTML = `<i class="fa-solid fa-heart-pulse"></i> CARDIO RESISTANCE WARNING: Cardio pressure risk active for elders in this segment. Limit physical exposure.`;
+                warningCard.style.background = "rgba(255,102,0,0.15)"; warningCard.style.borderColor = "var(--aqi-orange)"; warningCard.style.color = "var(--aqi-orange)";
+            } else {
+                warningCard.innerHTML = `<i class="fa-solid fa-circle-check"></i> Grid constraints validated for configuration [${currentProfile}]. No critical triggers encountered.`;
+                warningCard.style.background = "rgba(0, 255, 136, 0.05)"; warningCard.style.borderColor = "var(--aqi-green)"; warningCard.style.color = "var(--aqi-green)";
+            }
+        }
+
+        function applyQuickPrompt(promptText) { document.getElementById('botInput').value = promptText; }
+
+        // DEEP CORE RAG IMPLEMENTATION RUNNING VIA GEMINI FLASH API
+        async function queryGeminiRAG() {
+            const inputField = document.getElementById('botInput');
+            const chatLogs = document.getElementById('chatLogs');
+            const userText = inputField.value.trim();
+
+            if (!userText) return;
+
+            const userDiv = document.createElement('div');
+            userDiv.className = 'chat-bubble user'; userDiv.innerText = userText;
+            chatLogs.appendChild(userDiv); inputField.value = ''; chatLogs.scrollTop = chatLogs.scrollHeight;
+
+            const botLoader = document.createElement('div');
+            botLoader.className = 'chat-bubble bot';
+            botLoader.innerHTML = `<i class="fa-solid fa-circle-notch spinner" style="color:var(--accent-neon)"></i> Compiling localized contextual data layers...`;
+            chatLogs.appendChild(botLoader);
+
+            const systemPrompt = `You are AirBot, an expert AI health and environmental advisor deployed at the Accelerate 26 Hackathon.
+CRITICAL CONTEXT INJECTED FROM VECTOR LAYERS:
+- Real-Time Target Node AQI: ${currentAQI}
+- PM2.5 Density Volume: ${currentPM25} µg/m³
+- Currently Active User Health Profile Vector: ${currentProfile}
+- Major Regional Contamination Sources: Industrial Core Plumes (45%), Vehicular Flow (35%), Biomass Processing (20%)
+
+COMPLIANCE PROTOCOL: Be highly concise, technical yet empathetic, and completely actionable. Do not provide generic boilerplate safety advice. Tailor the response explicitly to the injected context parameters and the user profile state. Use clean formatting.`;
+
+            if (GEMINI_API_KEY === "AQ.Ab8RN6JJTWLa7IITDJXW1OqyVk_4TMY1wv_74uK6wTVIUVnNgA" || !GEMINI_API_KEY) {
+                setTimeout(() => {
+                    botLoader.innerHTML = `<b>[FALLBACK ENGINE ACTIVE - API KEY MISSING]</b><br/>Hello! You queried: "${userText}". Since your Gemini API key is not yet set in line 3, I am evaluating using fallback logic:<br/><br/>• <b>Current Vector State:</b> AQI is ${currentAQI} (${currentProfile} profile configuration).<br/>• <b>Insight:</b> To unlock pure LLM responses via Gemini's edge networks, insert your token directly in the script source!`;
+                    chatLogs.scrollTop = chatLogs.scrollHeight;
+                }, 1000);
+                return;
+            }
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: `${systemPrompt}\n\nUser Hyperlocal Query: ${userText}` }] }] })
+                });
+
+                const data = await response.json();
+                const processedOutput = data.candidates[0].content.parts[0].text;
+                botLoader.innerHTML = `<b>[RAG Generative Output]</b><br/>${processedOutput.replace(/\n/g, '<br/>')}`;
+            } catch (error) {
+                console.error(error);
+                botLoader.innerHTML = `<span style="color:var(--aqi-red)">🚨 Execution Pipeline Error connecting to Gemini endpoint. Check API Token limits or syntax tree logs.</span>`;
+            }
+            chatLogs.scrollTop = chatLogs.scrollHeight;
+        }
+    </script>
+</body>
+</html>
