@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ACCelerate'26 — QR Check-In System</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #0a0a0f; --surface: #13131a; --surface2: #1c1c28; --border: #2a2a3d;
+    --accent: #6c63ff; --accent2: #ff6b6b; --green: #00e676; --yellow: #ffd600;
+    --text: #e8e8f0; --muted: #6b6b8a; --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; min-height: 100vh; }
+
+  #setup-screen {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 20px;
+    background: radial-gradient(ellipse at 50% 0%, #1a1040 0%, #0a0a0f 70%);
+  }
+  .setup-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 20px; padding: 40px; width: 100%; max-width: 480px; text-align: center;
+  }
+  .setup-box h1 { font-size: 28px; font-weight: 800; color: var(--accent); margin-bottom: 6px; }
+  .setup-box p { color: var(--muted); margin-bottom: 28px; font-size: 14px; }
+  .setup-box label { display: block; text-align: left; font-size: 12px; color: var(--muted); margin-bottom: 5px; font-weight: 600; text-transform: uppercase; }
+  .setup-box input {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text); font-family: 'Space Mono', monospace;
+    font-size: 13px; padding: 12px 16px; margin-bottom: 14px; outline: none; transition: border-color 0.2s;
+  }
+  .setup-box input:focus { border-color: var(--accent); }
+  .setup-box input::placeholder { color: var(--muted); }
+  .btn-connect {
+    width: 100%; background: var(--accent); color: #fff; border: none; border-radius: var(--radius);
+    font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 700; padding: 14px;
+    cursor: pointer; transition: opacity 0.2s, transform 0.1s;
+  }
+  .btn-connect:hover { opacity: 0.9; transform: translateY(-1px); }
+  .btn-demo {
+    width: 100%; background: transparent; color: var(--muted); border: 1px solid var(--border);
+    border-radius: var(--radius); font-family: 'Syne', sans-serif; font-size: 14px;
+    font-weight: 600; padding: 11px; cursor: pointer; margin-top: 10px; transition: all 0.2s;
+  }
+  .btn-demo:hover { border-color: var(--accent); color: var(--accent); }
+  #setup-msg { margin-top: 16px; font-size: 14px; min-height: 20px; }
+  .msg-ok { color: var(--green); } .msg-err { color: var(--accent2); }
+
+  #app { display: none; flex-direction: column; min-height: 100vh; }
+  .header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .header-title { font-size: 18px; font-weight: 800; color: var(--accent); }
+  .header-sub { font-size: 12px; color: var(--muted); font-family: 'Space Mono', monospace; }
+  .db-badge { font-size: 11px; font-family: 'Space Mono', monospace; padding: 4px 10px; border-radius: 20px; font-weight: 700; }
+  .db-live { background: rgba(0,230,118,0.15); color: var(--green); border: 1px solid rgba(0,230,118,0.3); }
+  .db-demo { background: rgba(255,214,0,0.15); color: var(--yellow); border: 1px solid rgba(255,214,0,0.3); }
+
+  .nav { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; padding: 0 16px; }
+  .nav-btn {
+    background: none; border: none; color: var(--muted); font-family: 'Syne', sans-serif;
+    font-size: 13px; font-weight: 600; padding: 13px 16px; cursor: pointer;
+    border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.2s;
+  }
+  .nav-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .nav-btn:hover:not(.active) { color: var(--text); }
+
+  .content { flex: 1; padding: 24px; max-width: 960px; margin: 0 auto; width: 100%; }
+  .tab { display: none; } .tab.active { display: block; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px; }
+  .card-title { font-size: 16px; font-weight: 700; margin-bottom: 18px; color: var(--text); }
+
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .form-row.single { grid-template-columns: 1fr; }
+  .form-row.triple { grid-template-columns: 1fr 1fr 1fr; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  input, select {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-family: 'Syne', sans-serif;
+    font-size: 14px; padding: 10px 14px; outline: none; transition: border-color 0.2s;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  input[readonly] { background: rgba(108,99,255,0.08); color: var(--accent); font-weight: 700; cursor: default; border-color: rgba(108,99,255,0.25); }
+  select option { background: var(--surface2); }
+
+  .radio-group {
+    display: flex; gap: 20px; padding: 10px 14px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+  }
+  .radio-label {
+    display: flex; align-items: center; gap: 7px; cursor: pointer;
+    font-size: 14px; color: var(--text); font-weight: 500; text-transform: none; letter-spacing: 0;
+  }
+  .radio-label input[type=radio] { width: auto; accent-color: var(--accent); cursor: pointer; }
+
+  .btn {
+    border: none; border-radius: 8px; font-family: 'Syne', sans-serif; font-size: 14px;
+    font-weight: 700; padding: 11px 22px; cursor: pointer; transition: opacity 0.2s, transform 0.1s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { opacity: 0.88; transform: translateY(-1px); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-success { background: var(--green); color: #000; }
+  .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-sm { padding: 7px 14px; font-size: 12px; }
+  .btn-full { width: 100%; justify-content: center; margin-top: 16px; }
+
+  #qr-output {
+    display: none; text-align: center; margin-top: 20px; padding: 24px;
+    background: var(--surface2); border-radius: var(--radius); border: 1px solid var(--border);
+  }
+  #qr-canvas { margin: 0 auto 10px; }
+  #qr-info { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+  #qr-pid { font-family: 'Space Mono', monospace; font-size: 13px; color: var(--accent); margin-bottom: 14px; }
+
+  .scan-controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  #scanner-container { background: var(--surface2); border-radius: var(--radius); overflow: hidden; width: 100%; max-width: 420px; height: 310px; }
+
+  #toast {
+    position: fixed; top: 20px; right: 20px; padding: 14px 22px; border-radius: var(--radius);
+    font-weight: 700; font-size: 14px; z-index: 9999; opacity: 0; transform: translateY(-10px);
+    transition: opacity 0.3s, transform 0.3s; max-width: 320px;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.success { background: var(--green); color: #000; }
+  #toast.error { background: var(--accent2); color: #fff; }
+  #toast.info { background: var(--accent); color: #fff; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; text-align: center; }
+  .stat-num { font-size: 36px; font-weight: 800; line-height: 1; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; font-weight: 600; text-transform: uppercase; }
+  .stat-green .stat-num { color: var(--green); }
+  .stat-purple .stat-num { color: var(--accent); }
+  .stat-red .stat-num { color: var(--accent2); }
+  .stat-yellow .stat-num { color: var(--yellow); }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 14px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+  td { padding: 11px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+  tr:hover td { background: rgba(108,99,255,0.05); }
+
+  .badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; font-family: 'Space Mono', monospace; }
+  .badge-in { background: rgba(0,230,118,0.15); color: var(--green); }
+  .badge-out { background: rgba(255,107,107,0.15); color: var(--accent2); }
+  .badge-d1 { background: rgba(108,99,255,0.2); color: var(--accent); }
+  .badge-d2 { background: rgba(255,214,0,0.2); color: var(--yellow); }
+  .badge-d3 { background: rgba(0,230,118,0.2); color: var(--green); }
+  .pid-tag { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--muted); }
+
+  .att-dot { width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+  .att-yes { background: rgba(0,230,118,0.2); color: var(--green); border: 1px solid rgba(0,230,118,0.4); }
+  .att-no  { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+
+  .day-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .day-tab { padding: 8px 20px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s; }
+  .day-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .mode-toggle { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: fit-content; }
+  .mode-btn { padding: 9px 22px; border: none; background: var(--surface2); color: var(--muted); font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s; }
+  .mode-btn.active-in  { background: var(--green); color: #000; }
+  .mode-btn.active-out { background: var(--accent2); color: #fff; }
+
+  #scan-result { display: none; padding: 20px; border-radius: var(--radius); margin-top: 16px; border: 1px solid; animation: slideIn 0.3s ease; }
+  @keyframes slideIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+  .success-result { background: rgba(0,230,118,0.1); border-color: rgba(0,230,118,0.3) !important; }
+  .error-result   { background: rgba(255,107,107,0.1); border-color: rgba(255,107,107,0.3) !important; }
+  .result-name { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+  .result-detail { font-size: 13px; color: var(--muted); margin-top: 3px; }
+
+  .manual-row { display: flex; gap: 10px; margin-top: 16px; }
+  .manual-row input { flex: 1; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+  hr.div { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+
+  @media(max-width:600px) {
+    .form-row, .form-row.triple { grid-template-columns: 1fr; }
+    .content { padding: 14px; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- SETUP SCREEN -->
+<div id="setup-screen">
+  <div class="setup-box">
+    <div style="font-size:42px;margin-bottom:10px">⚡</div>
+    <h1>ACCelerate'26</h1>
+    <p>QR-Based Participant Check-In / Check-Out System<br>Enter your Supabase credentials to connect</p>
+    <label>Supabase Project URL</label>
+    <input type="text" id="sb-url" placeholder="https://xxxxxxxx.supabase.co"/>
+    <label>Supabase Anon Key</label>
+    <input type="text" id="sb-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."/>
+    <button class="btn-connect" onclick="connectDB()">⚡ Connect &amp; Launch</button>
+    <button class="btn-demo" onclick="launchDemo()">🧪 Demo Mode (No Database Needed)</button>
+    <div id="setup-msg"></div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <div class="header">
+    <div>
+      <div class="header-title">⚡ ACCelerate'26</div>
+      <div class="header-sub">QR Check-In / Check-Out System</div>
+    </div>
+    <span id="db-badge" class="db-badge db-demo">DEMO</span>
+  </div>
+
+  <div class="nav">
+    <button class="nav-btn active" onclick="showTab('register',this)">📝 Register</button>
+    <button class="nav-btn" onclick="showTab('scan',this)">📷 Scan QR</button>
+    <button class="nav-btn" onclick="showTab('dashboard',this)">📊 Dashboard</button>
+    <button class="nav-btn" onclick="showTab('logs',this)">📋 Logs</button>
+    <button class="nav-btn" onclick="showTab('attendance',this)">🗓 Attendance</button>
+  </div>
+
+  <div class="content">
+
+    <!-- REGISTER -->
+    <div class="tab active" id="tab-register">
+      <div class="card">
+        <div class="card-title">📝 Register New Participant</div>
+
+        <div class="form-row">
+          <div>
+            <label>Are you associated with Amity University? *</label>
+            <div class="radio-group">
+              <label class="radio-label"><input type="radio" name="amity" value="Yes" checked onchange="calcFee()"> Yes</label>
+              <label class="radio-label"><input type="radio" name="amity" value="No" onchange="calcFee()"> No</label>
+            </div>
+          </div>
+          <div>
+            <label>Category Type *</label>
+            <div class="radio-group">
+              <label class="radio-label"><input type="radio" name="cattype" value="Student" checked onchange="calcFee()"> Student</label>
+              <label class="radio-label"><input type="radio" name="cattype" value="Faculty / Staff" onchange="calcFee()"> Faculty / Staff</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div>
+            <label>Category *</label>
+            <select id="r-category">
+              <option value="">-- Select Category --</option>
+              <option>Workshop</option><option>Seminar</option><option>Hackathon</option>
+              <option>Competition</option><option>General</option><option>VIP</option>
+              <option>Speaker</option><option>Volunteer</option><option>Organizer</option>
+            </select>
+          </div>
+          <div>
+            <label>Gender *</label>
+            <select id="r-gender">
+              <option value="">Select Gender</option>
+              <option>Male</option><option>Female</option><option>Other</option>
+              <option>Prefer not to say</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div><label>Name *</label><input type="text" id="r-name" placeholder="Full Name"/></div>
+          <div><label>Email ID *</label><input type="email" id="r-email" placeholder="email@example.com"/></div>
+        </div>
+
+        <div class="form-row">
+          <div><label>Mobile No. *</label><input type="text" id="r-mobile" placeholder="+91 9876543210"/></div>
+          <div><label>Affiliation / Institute *</label><input type="text" id="r-affil" placeholder="College / University / Organization"/></div>
+        </div>
+
+        <div class="form-row">
+          <div><label>Designation</label><input type="text" id="r-desig" placeholder="e.g. B.Tech 2nd Year, Professor"/></div>
+          <div><label>Address</label><input type="text" id="r-address" placeholder="City, State"/></div>
+        </div>
+
+        <hr class="div"/>
+        <div style="font-size:12px;color:var(--accent);font-weight:700;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">💰 Fee Calculation (Auto)</div>
+
+        <div class="form-row triple">
+          <div><label>Amount (₹)</label><input type="text" id="r-amount" readonly/></div>
+          <div><label>GST Amount (₹)</label><input type="text" id="r-gst" readonly/></div>
+          <div><label>Payable Amount (₹)</label><input type="text" id="r-payable" readonly/></div>
+        </div>
+
+        <button class="btn btn-primary btn-full" onclick="registerParticipant()">🎫 Register &amp; Generate QR Code</button>
+      </div>
+
+      <div id="qr-output">
+        <div id="qr-canvas"></div>
+        <div id="qr-info"></div>
+        <div id="qr-pid"></div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:14px">📱 Print or share this QR with the participant</p>
+        <button class="btn btn-outline btn-sm" onclick="downloadQR()">⬇ Download QR</button>
+      </div>
+    </div>
+
+    <!-- SCAN -->
+    <div class="tab" id="tab-scan">
+      <div class="card">
+        <div class="card-title">📷 QR Scanner</div>
+        <div class="form-row">
+          <div>
+            <label>Select Day</label>
+            <div class="day-tabs">
+              <button class="day-tab active" onclick="setDay(1,this)">Day 1</button>
+              <button class="day-tab" onclick="setDay(2,this)">Day 2</button>
+              <button class="day-tab" onclick="setDay(3,this)">Day 3</button>
+            </div>
+          </div>
+          <div>
+            <label>Mode</label>
+            <div class="mode-toggle">
+              <button class="mode-btn active-in" id="mode-in" onclick="setMode('checkin')">✅ Check IN</button>
+              <button class="mode-btn" id="mode-out" onclick="setMode('checkout')">🚪 Check OUT</button>
+            </div>
+          </div>
+        </div>
+        <div class="scan-controls">
+          <button class="btn btn-primary" onclick="startScan()">📷 Start Camera</button>
+          <button class="btn btn-outline" onclick="stopScan()">⏹ Stop</button>
+        </div>
+        <div id="scanner-container"></div>
+        <div class="manual-row">
+          <input type="text" id="manual-id" placeholder="Or enter Participant ID manually (e.g. ACC-X4F2)" onkeydown="if(event.key==='Enter')manualCheckin()"/>
+          <button class="btn btn-success" onclick="manualCheckin()">Submit</button>
+        </div>
+        <div id="scan-result"></div>
+      </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div class="tab" id="tab-dashboard">
+      <div class="section-header">
+        <div style="font-size:18px;font-weight:800">📊 Live Dashboard</div>
+        <button class="btn btn-outline btn-sm" onclick="loadDashboard()">🔄 Refresh</button>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card stat-purple"><div class="stat-num" id="d-total">0</div><div class="stat-label">Registered</div></div>
+        <div class="stat-card stat-green"><div class="stat-num" id="d-inside">0</div><div class="stat-label">Inside Now</div></div>
+        <div class="stat-card stat-red"><div class="stat-num" id="d-out">0</div><div class="stat-label">Checked Out</div></div>
+        <div class="stat-card stat-yellow"><div class="stat-num" id="d-scans">0</div><div class="stat-label">Total Scans</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Day-Wise Check-Ins</div>
+        <div class="stats-grid" style="margin-bottom:0">
+          <div class="stat-card"><div class="stat-num" id="d-d1" style="color:var(--accent)">0</div><div class="stat-label">Day 1</div></div>
+          <div class="stat-card"><div class="stat-num" id="d-d2" style="color:var(--yellow)">0</div><div class="stat-label">Day 2</div></div>
+          <div class="stat-card"><div class="stat-num" id="d-d3" style="color:var(--green)">0</div><div class="stat-label">Day 3</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Recent Activity</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Category</th><th>Action</th><th>Day</th><th>Time</th></tr></thead>
+            <tbody id="recent-tbody"><tr><td colspan="5" style="color:var(--muted);text-align:center;padding:20px">Click Refresh</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOGS -->
+    <div class="tab" id="tab-logs">
+      <div class="section-header">
+        <div style="font-size:18px;font-weight:800">📋 Scan Logs</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <select id="f-day" style="padding:7px 12px;font-size:12px;border-radius:8px" onchange="loadLogs()">
+            <option value="">All Days</option>
+            <option value="1">Day 1</option><option value="2">Day 2</option><option value="3">Day 3</option>
+          </select>
+          <select id="f-action" style="padding:7px 12px;font-size:12px;border-radius:8px" onchange="loadLogs()">
+            <option value="">All Actions</option>
+            <option value="checkin">Check-In</option><option value="checkout">Check-Out</option>
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="loadLogs()">🔄 Refresh</button>
+          <button class="btn btn-success btn-sm" onclick="exportLogsCSV()">⬇ Export</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Name</th><th>Affiliation</th><th>Category</th><th>Action</th><th>Day</th><th>Time</th></tr></thead>
+            <tbody id="logs-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;padding:20px">Click Refresh</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ATTENDANCE -->
+    <div class="tab" id="tab-attendance">
+      <div class="section-header">
+        <div style="font-size:18px;font-weight:800">🗓 Attendance Sheet</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline btn-sm" onclick="loadAttendance()">🔄 Refresh</button>
+          <button class="btn btn-success btn-sm" onclick="exportAttCSV()">⬇ Export</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th><th>Name</th><th>Mobile</th><th>Affiliation</th>
+                <th>Category</th><th>Gender</th><th>Amity</th>
+                <th style="text-align:center">D1</th><th style="text-align:center">D2</th><th style="text-align:center">D3</th>
+                <th style="text-align:center">Total</th><th>Payable</th>
+              </tr>
+            </thead>
+            <tbody id="att-tbody"><tr><td colspan="12" style="color:var(--muted);text-align:center;padding:20px">Click Refresh</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ===== STATE =====
+let SB_URL='', SB_KEY='', IS_DEMO=false;
+let curDay=1, curMode='checkin';
+let scanner=null, scanActive=false;
+let dPart=[], dLogs=[];
+
+// ===== FEE CALCULATION =====
+function calcFee() {
+  const amity   = document.querySelector('input[name="amity"]:checked')?.value || 'Yes';
+  const cattype = document.querySelector('input[name="cattype"]:checked')?.value || 'Student';
+  const fees = {
+    'Yes_Student': {base:200, gst:0},
+    'Yes_Faculty / Staff': {base:300, gst:0},
+    'No_Student': {base:500, gst:18},
+    'No_Faculty / Staff': {base:800, gst:18}
+  };
+  const f = fees[`${amity}_${cattype}`] || {base:0, gst:0};
+  const gstAmt = Math.round(f.base * f.gst / 100);
+  document.getElementById('r-amount').value  = '₹' + f.base;
+  document.getElementById('r-gst').value     = '₹' + gstAmt;
+  document.getElementById('r-payable').value = '₹' + (f.base + gstAmt);
+}
+calcFee();
+
+// ===== SETUP =====
+async function connectDB() {
+  const url = document.getElementById('sb-url').value.trim();
+  const key = document.getElementById('sb-key').value.trim();
+  const msg = document.getElementById('setup-msg');
+  if (!url || !key) { msg.className='msg-err'; msg.textContent='Please fill both fields.'; return; }
+  msg.textContent = 'Connecting...'; msg.className = '';
+  try {
+    const r = await fetch(`${url}/rest/v1/participants?limit=1`, {
+      headers: { 'apikey': key, 'Authorization': `Bearer ${key}` }
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' — Wrong URL or Key?');
+    SB_URL=url; SB_KEY=key; IS_DEMO=false;
+    msg.className='msg-ok'; msg.textContent='✅ Connected!';
+    setTimeout(launch, 700);
+  } catch(e) { msg.className='msg-err'; msg.textContent='❌ ' + e.message; }
+}
+function launchDemo() { IS_DEMO=true; launch(); }
+function launch() {
+  document.getElementById('setup-screen').style.display='none';
+  document.getElementById('app').style.display='flex';
+  const b=document.getElementById('db-badge');
+  b.textContent=IS_DEMO?'DEMO MODE':'● LIVE DB';
+  b.className='db-badge '+(IS_DEMO?'db-demo':'db-live');
+  loadDashboard();
+}
+
+// ===== API =====
+async function GET(table, q='') {
+  const r = await fetch(`${SB_URL}/rest/v1/${table}?${q}`, {
+    headers:{'apikey':SB_KEY,'Authorization':`Bearer ${SB_KEY}`}
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async function POST(table, data) {
+  const r = await fetch(`${SB_URL}/rest/v1/${table}`, {
+    method:'POST',
+    headers:{'apikey':SB_KEY,'Authorization':`Bearer ${SB_KEY}`,'Content-Type':'application/json','Prefer':'return=representation'},
+    body: JSON.stringify(data)
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// ===== NAV =====
+function showTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  el.classList.add('active');
+  stopScan();
+  if (name==='dashboard') loadDashboard();
+  if (name==='logs') loadLogs();
+  if (name==='attendance') loadAttendance();
+}
+
+// ===== REGISTER =====
+function genID() {
+  const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let id='ACC-';
+  for(let i=0;i<4;i++) id+=c[Math.floor(Math.random()*c.length)];
+  return id;
+}
+
+async function registerParticipant() {
+  const amity    = document.querySelector('input[name="amity"]:checked')?.value||'';
+  const cattype  = document.querySelector('input[name="cattype"]:checked')?.value||'';
+  const category = document.getElementById('r-category').value;
+  const gender   = document.getElementById('r-gender').value;
+  const name     = document.getElementById('r-name').value.trim();
+  const email    = document.getElementById('r-email').value.trim();
+  const mobile   = document.getElementById('r-mobile').value.trim();
+  const affil    = document.getElementById('r-affil').value.trim();
+  const desig    = document.getElementById('r-desig').value.trim();
+  const address  = document.getElementById('r-address').value.trim();
+  const amount   = document.getElementById('r-amount').value;
+  const gst      = document.getElementById('r-gst').value;
+  const payable  = document.getElementById('r-payable').value;
+
+  if (!name)                     { toast('Enter participant name','error'); return; }
+  if (!email||!email.includes('@')){ toast('Enter valid email','error'); return; }
+  if (!mobile)                   { toast('Enter mobile number','error'); return; }
+  if (!affil)                    { toast('Enter affiliation/institute','error'); return; }
+  if (!category)                 { toast('Select a category','error'); return; }
+  if (!gender)                   { toast('Select gender','error'); return; }
+
+  const pid = genID();
+  const p = { participant_id:pid, name, email, mobile, affiliation:affil,
+               designation:desig, address, gender, category,
+               category_type:cattype, amity_associated:amity,
+               amount, gst_amount:gst, payable_amount:payable };
+  try {
+    if (IS_DEMO) {
+      if (dPart.find(x=>x.email===email)) { toast('Email already registered!','error'); return; }
+      dPart.push({...p, created_at:new Date().toISOString()});
+    } else {
+      await POST('participants', p);
+    }
+    toast(`✅ Registered! ID: ${pid}`, 'success');
+    showQR(pid, name, affil, category);
+    ['r-name','r-email','r-mobile','r-affil','r-desig','r-address'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('r-category').value='';
+    document.getElementById('r-gender').value='';
+    document.querySelector('input[name="amity"][value="Yes"]').checked=true;
+    document.querySelector('input[name="cattype"][value="Student"]').checked=true;
+    calcFee();
+  } catch(e) {
+    const m=e.message||'';
+    if (m.includes('23505')||m.includes('unique')) toast('Email already registered!','error');
+    else toast('Error: '+m.substring(0,100),'error');
+  }
+}
+
+function showQR(pid, name, affil, category) {
+  const box=document.getElementById('qr-output');
+  box.style.display='block';
+  document.getElementById('qr-info').textContent=`${name} — ${affil}`;
+  document.getElementById('qr-pid').textContent=`ID: ${pid}  |  ${category}`;
+  document.getElementById('qr-canvas').innerHTML='';
+  new QRCode(document.getElementById('qr-canvas'), {
+    text: JSON.stringify({participant_id:pid,name,event:'ACCelerate26'}),
+    width:200, height:200, colorDark:'#ffffff', colorLight:'#1c1c28'
+  });
+}
+
+function downloadQR() {
+  const c=document.querySelector('#qr-canvas canvas');
+  if(!c) return;
+  const a=document.createElement('a');
+  a.download=`QR-${document.getElementById('qr-pid').textContent.split('|')[0].replace('ID: ','').trim()}.png`;
+  a.href=c.toDataURL(); a.click();
+}
+
+// ===== SCAN =====
+function setDay(d,el){ curDay=d; document.querySelectorAll('.day-tab').forEach(b=>b.classList.remove('active')); el.classList.add('active'); }
+function setMode(m){
+  curMode=m;
+  document.getElementById('mode-in').className ='mode-btn'+(m==='checkin' ?' active-in':'');
+  document.getElementById('mode-out').className='mode-btn'+(m==='checkout'?' active-out':'');
+}
+function startScan(){
+  if(scanActive) return;
+  document.getElementById('scanner-container').innerHTML='';
+  scanner=new Html5Qrcode('scanner-container');
+  scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:250,height:250}},
+    text=>processQR(text), ()=>{}
+  ).then(()=>scanActive=true)
+   .catch(e=>toast('Camera error: '+e,'error'));
+}
+function stopScan(){ if(scanner&&scanActive){scanner.stop().catch(()=>{});scanActive=false;} }
+
+async function manualCheckin(){
+  const pid=document.getElementById('manual-id').value.trim().toUpperCase();
+  if(!pid){toast('Enter Participant ID','error');return;}
+  await processCheckin(pid);
+  document.getElementById('manual-id').value='';
+}
+async function processQR(text){
+  stopScan();
+  let pid=text;
+  try{const o=JSON.parse(text);pid=o.participant_id||text;}catch(e){}
+  await processCheckin(pid.trim().toUpperCase());
+}
+async function processCheckin(pid){
+  try{
+    let p;
+    if(IS_DEMO) p=dPart.find(x=>x.participant_id===pid);
+    else{const d=await GET('participants',`participant_id=eq.${pid}&select=*`);p=d&&d[0];}
+    if(!p){showScanRes(false,`ID not found: ${pid}`,'');toast('Participant not found!','error');return;}
+
+    let already=false;
+    if(IS_DEMO) already=dLogs.some(l=>l.participant_id===pid&&l.day_number===curDay&&l.action_type===curMode);
+    else{const ex=await GET('checkin_logs',`participant_id=eq.${pid}&day_number=eq.${curDay}&action_type=eq.${curMode}`);already=ex&&ex.length>0;}
+
+    if(already){showScanRes(false,`Already ${curMode==='checkin'?'Checked IN':'Checked OUT'} on Day ${curDay}`,p.name);toast('Already done for this day!','error');return;}
+
+    const log={participant_id:pid,action_type:curMode,day_number:curDay,scanned_by:'Admin',created_at:new Date().toISOString()};
+    if(IS_DEMO) dLogs.push(log);
+    else await POST('checkin_logs',log);
+
+    const act=curMode==='checkin'?'✅ Checked IN':'🚪 Checked OUT';
+    showScanRes(true,`${act} — Day ${curDay}`,p.name,p.affiliation,p.category);
+    toast(`${act}: ${p.name}`,'success');
+  }catch(e){showScanRes(false,'Error: '+(e.message||'').substring(0,60),'');toast('Processing error!','error');}
+}
+function showScanRes(ok,action,name,affil='',cat=''){
+  const el=document.getElementById('scan-result');
+  el.style.display='block';
+  el.className=ok?'success-result':'error-result';
+  el.innerHTML=`
+    <div class="result-name" style="color:${ok?'var(--green)':'var(--accent2)'}">${name||action}</div>
+    ${name?`<div class="result-detail">${action}</div>`:''}
+    ${affil?`<div class="result-detail">${affil}${cat?' &bull; '+cat:''}</div>`:''}
+  `;
+  setTimeout(()=>{el.style.display='none';},5000);
+}
+
+// ===== DASHBOARD =====
+async function loadDashboard(){
+  try{
+    let parts,logs;
+    if(IS_DEMO){parts=dPart;logs=dLogs;}
+    else{[parts,logs]=await Promise.all([GET('participants','select=participant_id'),GET('checkin_logs','select=*&order=created_at.desc')]);}
+    const allLogs=logs||[];
+    const last={};
+    [...allLogs].reverse().forEach(l=>{if(!last[l.participant_id])last[l.participant_id]=l.action_type;});
+    document.getElementById('d-total').textContent=(parts||[]).length;
+    document.getElementById('d-inside').textContent=Object.values(last).filter(a=>a==='checkin').length;
+    document.getElementById('d-out').textContent=Object.values(last).filter(a=>a==='checkout').length;
+    document.getElementById('d-scans').textContent=allLogs.length;
+    document.getElementById('d-d1').textContent=allLogs.filter(l=>l.day_number==1&&l.action_type==='checkin').length;
+    document.getElementById('d-d2').textContent=allLogs.filter(l=>l.day_number==2&&l.action_type==='checkin').length;
+    document.getElementById('d-d3').textContent=allLogs.filter(l=>l.day_number==3&&l.action_type==='checkin').length;
+
+    let recent;
+    if(IS_DEMO) recent=[...dLogs].reverse().slice(0,10);
+    else recent=await GET('checkin_logs','select=*,participants(name,category)&order=created_at.desc&limit=10');
+
+    const tb=document.getElementById('recent-tbody');
+    if(!recent||!recent.length){tb.innerHTML='<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:20px">No activity yet</td></tr>';return;}
+    tb.innerHTML=recent.map(l=>{
+      let name='',cat='';
+      if(IS_DEMO){const p=dPart.find(x=>x.participant_id===l.participant_id);name=p?p.name:'';cat=p?p.category:'';}
+      else{name=l.participants?.name||'';cat=l.participants?.category||'';}
+      return`<tr><td style="font-weight:600">${name}</td><td><span class="badge badge-d1" style="font-size:10px">${cat}</span></td><td><span class="badge ${l.action_type==='checkin'?'badge-in':'badge-out'}">${l.action_type==='checkin'?'CHECK IN':'CHECK OUT'}</span></td><td><span class="badge badge-d${l.day_number}">Day ${l.day_number}</span></td><td style="color:var(--muted);font-size:12px">${new Date(l.created_at).toLocaleTimeString()}</td></tr>`;
+    }).join('');
+  }catch(e){toast('Dashboard error: '+e.message,'error');}
+}
+
+// ===== LOGS =====
+async function loadLogs(){
+  try{
+    const fd=document.getElementById('f-day').value;
+    const fa=document.getElementById('f-action').value;
+    let data;
+    if(IS_DEMO){
+      data=dLogs.filter(l=>{
+        if(fd&&l.day_number!=fd)return false;
+        if(fa&&l.action_type!==fa)return false;
+        return true;
+      }).slice().reverse();
+    }else{
+      let q='select=*,participants(name,affiliation,category)&order=created_at.desc&limit=300';
+      if(fd)q+=`&day_number=eq.${fd}`;
+      if(fa)q+=`&action_type=eq.${fa}`;
+      data=await GET('checkin_logs',q);
+    }
+    const tb=document.getElementById('logs-tbody');
+    if(!data||!data.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:20px">No logs found</td></tr>';return;}
+    tb.innerHTML=data.map(l=>{
+      let name='',affil='',cat='';
+      if(IS_DEMO){const p=dPart.find(x=>x.participant_id===l.participant_id);name=p?p.name:'';affil=p?p.affiliation:'';cat=p?p.category:'';}
+      else{name=l.participants?.name||'';affil=l.participants?.affiliation||'';cat=l.participants?.category||'';}
+      return`<tr><td><span class="pid-tag">${l.participant_id}</span></td><td style="font-weight:600">${name}</td><td style="font-size:12px;color:var(--muted)">${affil}</td><td><span class="badge badge-d1" style="font-size:10px">${cat}</span></td><td><span class="badge ${l.action_type==='checkin'?'badge-in':'badge-out'}">${l.action_type==='checkin'?'CHECK IN':'CHECK OUT'}</span></td><td><span class="badge badge-d${l.day_number}">Day ${l.day_number}</span></td><td style="color:var(--muted);font-size:12px">${new Date(l.created_at).toLocaleString()}</td></tr>`;
+    }).join('');
+  }catch(e){toast('Logs error: '+e.message,'error');}
+}
+
+// ===== ATTENDANCE =====
+async function loadAttendance(){
+  try{
+    let parts,logs;
+    if(IS_DEMO){parts=dPart;logs=dLogs;}
+    else{[parts,logs]=await Promise.all([GET('participants','select=*&order=created_at.asc'),GET('checkin_logs','select=participant_id,day_number,action_type')]);}
+    const tb=document.getElementById('att-tbody');
+    if(!parts||!parts.length){tb.innerHTML='<tr><td colspan="12" style="color:var(--muted);text-align:center;padding:20px">No participants yet</td></tr>';return;}
+    tb.innerHTML=parts.map(p=>{
+      const pl=(logs||[]).filter(l=>l.participant_id===p.participant_id&&l.action_type==='checkin');
+      const d1=pl.some(l=>l.day_number==1),d2=pl.some(l=>l.day_number==2),d3=pl.some(l=>l.day_number==3);
+      const tot=[d1,d2,d3].filter(Boolean).length;
+      const dot=ok=>`<td style="text-align:center"><span class="att-dot ${ok?'att-yes':'att-no'}">${ok?'✓':'–'}</span></td>`;
+      return`<tr><td><span class="pid-tag">${p.participant_id}</span></td><td style="font-weight:600">${p.name}</td><td style="font-size:12px;color:var(--muted)">${p.mobile||'–'}</td><td style="font-size:12px;color:var(--muted)">${p.affiliation||'–'}</td><td><span class="badge badge-d1" style="font-size:10px">${p.category||'–'}</span></td><td style="font-size:12px;color:var(--muted)">${p.gender||'–'}</td><td style="font-size:12px;color:var(--muted)">${p.amity_associated||'–'}</td>${dot(d1)}${dot(d2)}${dot(d3)}<td style="text-align:center;font-weight:800;color:${tot===3?'var(--green)':tot>0?'var(--yellow)':'var(--muted)'}">${tot}/3</td><td style="font-size:12px;color:var(--accent);font-weight:700">${p.payable_amount||'–'}</td></tr>`;
+    }).join('');
+  }catch(e){toast('Attendance error: '+e.message,'error');}
+}
+
+// ===== EXPORT CSV =====
+function exportLogsCSV(){
+  const rows=[['ID','Name','Affiliation','Category','Action','Day','Time']];
+  document.querySelectorAll('#logs-tbody tr').forEach(tr=>{
+    const t=tr.querySelectorAll('td');
+    if(t.length>=7) rows.push([t[0].textContent.trim(),t[1].textContent.trim(),t[2].textContent.trim(),t[3].textContent.trim(),t[4].textContent.trim(),t[5].textContent.trim(),t[6].textContent.trim()]);
+  });
+  dlCSV(rows,'checkin-logs.csv');
+}
+function exportAttCSV(){
+  const rows=[['ID','Name','Mobile','Affiliation','Category','Gender','Amity','Day1','Day2','Day3','Total','Payable']];
+  document.querySelectorAll('#att-tbody tr').forEach(tr=>{
+    const t=tr.querySelectorAll('td');
+    if(t.length>=12) rows.push(Array.from(t).map(x=>x.textContent.trim()));
+  });
+  dlCSV(rows,'attendance.csv');
+}
+function dlCSV(rows,fname){
+  const csv=rows.map(r=>r.map(c=>`"${(c||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=fname; a.click();
+}
+
+// ===== TOAST =====
+function toast(msg,type='info'){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.className=`show ${type}`;
+  clearTimeout(el._t);
+  el._t=setTimeout(()=>{el.className=type;},3200);
+}
+</script>
+</body>
+</html>
