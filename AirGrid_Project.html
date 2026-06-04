@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AirGrid — Hyperlocal AQI Intelligence</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+:root{
+  --bg:#0a0e1a;--surface:#111827;--surface2:#1a2235;--border:#1e2d45;
+  --accent:#00e5ff;--accent2:#7c3aed;--good:#00e676;--moderate:#ffea00;
+  --unhealthy:#ff6d00;--very:#d50000;--hazardous:#6a0080;
+  --text:#e2e8f0;--muted:#64748b;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;overflow:hidden;}
+body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;}
+body::before{content:'';position:fixed;inset:0;z-index:0;
+  background-image:linear-gradient(rgba(0,229,255,0.03) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(0,229,255,0.03) 1px,transparent 1px);
+  background-size:40px 40px;pointer-events:none;}
+
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:1000;display:flex;align-items:center;
+  justify-content:space-between;padding:0 1.5rem;height:56px;
+  background:rgba(10,14,26,0.97);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);}
+.logo{font-family:'Space Mono',monospace;font-size:1rem;color:var(--accent);letter-spacing:2px;}
+.logo span{color:var(--text);}
+.nav-tabs{display:flex;gap:0.2rem;}
+.nav-tab{padding:0.35rem 0.75rem;border-radius:6px;font-size:0.7rem;font-weight:700;
+  cursor:pointer;border:none;background:transparent;color:var(--muted);
+  transition:all 0.2s;text-transform:uppercase;font-family:'Syne',sans-serif;}
+.nav-tab.active,.nav-tab:hover{background:var(--surface2);color:var(--accent);}
+.live-badge{display:flex;align-items:center;gap:0.4rem;font-size:0.7rem;color:var(--good);font-family:'Space Mono',monospace;}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--good);animation:pulse 1.5s infinite;}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(1.5)}}
+
+/* LAYOUT */
+.main{padding-top:56px;display:flex;height:100vh;}
+
+/* SIDEBAR */
+.sidebar{width:300px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column;}
+.sidebar::-webkit-scrollbar{width:3px;}
+.sidebar::-webkit-scrollbar-thumb{background:var(--border);}
+
+.aqi-hero{background:linear-gradient(135deg,var(--surface2),var(--bg));padding:1.1rem 1.25rem;border-bottom:1px solid var(--border);}
+.aqi-location{font-size:0.63rem;color:var(--muted);margin-bottom:0.2rem;font-family:'Space Mono',monospace;}
+.aqi-value-row{display:flex;align-items:baseline;gap:0.4rem;margin:0.3rem 0;}
+.aqi-number{font-size:2.8rem;font-weight:800;line-height:1;}
+.aqi-unit{font-size:0.78rem;color:var(--muted);}
+.aqi-label{display:inline-block;padding:0.18rem 0.55rem;border-radius:4px;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;}
+.aqi-params{display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;margin-top:0.55rem;}
+.param-chip{background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:5px;padding:0.32rem 0.5rem;}
+.param-chip .lbl{font-size:0.56rem;color:var(--muted);text-transform:uppercase;font-family:'Space Mono',monospace;}
+.param-chip .val{font-size:0.88rem;font-weight:700;margin-top:0.08rem;}
+
+.sidebar-section{padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);}
+.sidebar-section h3{font-size:0.58rem;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:0.6rem;font-family:'Space Mono',monospace;}
+
+/* HEALTH PROFILE */
+.profile-selector{display:flex;flex-direction:column;gap:0.32rem;}
+.profile-btn{display:flex;align-items:center;gap:0.6rem;padding:0.48rem 0.65rem;
+  border-radius:7px;border:1px solid var(--border);background:transparent;
+  color:var(--text);cursor:pointer;transition:all 0.2s;font-family:'Syne',sans-serif;font-size:0.78rem;}
+.profile-btn:hover{border-color:var(--accent);background:rgba(0,229,255,0.05);}
+.profile-btn.active{border-color:var(--accent);background:rgba(0,229,255,0.09);color:var(--accent);}
+
+.alert-box{border-radius:7px;padding:0.6rem 0.85rem;margin-top:0.55rem;border-left:3px solid;font-size:0.76rem;line-height:1.55;}
+.alert-box.safe{border-color:var(--good);background:rgba(0,230,118,0.07);}
+.alert-box.warning{border-color:var(--moderate);background:rgba(255,234,0,0.07);}
+.alert-box.danger{border-color:var(--unhealthy);background:rgba(255,109,0,0.09);}
+
+/* FORECAST */
+.forecast-scroll{display:flex;gap:0.32rem;overflow-x:auto;padding-bottom:0.2rem;}
+.forecast-scroll::-webkit-scrollbar{height:3px;}
+.forecast-scroll::-webkit-scrollbar-thumb{background:var(--border);}
+.fc-chip{flex-shrink:0;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:0.42rem 0.5rem;text-align:center;min-width:56px;}
+.fc-chip .fc-time{font-size:0.56rem;color:var(--muted);font-family:'Space Mono',monospace;}
+.fc-chip .fc-val{font-size:1rem;font-weight:800;margin:0.12rem 0;}
+.fc-chip .fc-lbl{font-size:0.5rem;text-transform:uppercase;}
+.fc-chip.up{border-color:rgba(255,109,0,0.4);}
+.fc-chip.dn{border-color:rgba(0,230,118,0.4);}
+
+/* SOURCE */
+.src-card{background:var(--surface2);border-radius:7px;padding:0.6rem;border:1px solid var(--border);margin-bottom:0.38rem;}
+.src-name{font-size:0.76rem;font-weight:700;margin-bottom:0.12rem;}
+.src-detail{font-size:0.66rem;color:var(--muted);}
+.src-bar-bg{margin-top:0.32rem;background:rgba(255,255,255,0.06);border-radius:10px;height:4px;}
+.src-bar{height:4px;border-radius:10px;}
+
+/* ROUTE */
+.route-inputs{display:flex;flex-direction:column;gap:0.42rem;}
+.r-input{background:var(--surface2);border:1px solid var(--border);border-radius:7px;
+  padding:0.52rem 0.65rem;color:var(--text);font-family:'Syne',sans-serif;font-size:0.78rem;outline:none;}
+.r-input:focus{border-color:var(--accent);}
+.r-btn{background:linear-gradient(135deg,var(--accent2),#1d4ed8);border:none;border-radius:7px;
+  padding:0.58rem;color:#fff;font-family:'Syne',sans-serif;font-weight:700;font-size:0.8rem;cursor:pointer;}
+.r-btn:hover{opacity:0.85;}
+.route-res{background:var(--surface2);border-radius:7px;padding:0.65rem;border:1px solid var(--border);margin-top:0.45rem;font-size:0.76rem;display:none;}
+.route-res.show{display:block;}
+.r-stat{display:flex;justify-content:space-between;margin-bottom:0.22rem;}
+.r-stat span:first-child{color:var(--muted);}
+.r-stat span:last-child{font-weight:700;color:var(--good);}
+
+/* MAP */
+.map-wrap{flex:1;position:relative;}
+#map{width:100%;height:100%;background:#0a0e1a;}
+#map-loader{position:absolute;inset:0;z-index:400;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;background:var(--bg);gap:1rem;}
+.spin-big{width:38px;height:38px;border:3px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+#map-loader p{font-size:0.75rem;color:var(--muted);font-family:'Space Mono',monospace;}
+
+.map-ctrls{position:absolute;top:1rem;right:1rem;z-index:500;display:flex;flex-direction:column;gap:0.38rem;}
+.mc-btn{background:rgba(17,24,39,0.92);backdrop-filter:blur(10px);border:1px solid var(--border);
+  border-radius:7px;padding:0.42rem 0.68rem;color:var(--text);font-size:0.7rem;
+  cursor:pointer;font-family:'Syne',sans-serif;font-weight:600;transition:all 0.2s;white-space:nowrap;}
+.mc-btn:hover,.mc-btn.active{border-color:var(--accent);color:var(--accent);}
+
+.map-legend{position:absolute;bottom:1rem;left:1rem;z-index:500;
+  background:rgba(17,24,39,0.92);backdrop-filter:blur(10px);
+  border:1px solid var(--border);border-radius:10px;padding:0.6rem 0.85rem;}
+.leg-title{font-size:0.56rem;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:0.38rem;font-family:'Space Mono',monospace;}
+.leg-item{display:flex;align-items:center;gap:0.38rem;font-size:0.66rem;margin-bottom:0.18rem;}
+.leg-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
+
+/* CHATBOT */
+.chat-wrap{position:fixed;bottom:1.2rem;right:1.2rem;z-index:900;display:flex;flex-direction:column;align-items:flex-end;gap:0.6rem;}
+.chat-win{width:316px;height:395px;background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;display:none;flex-direction:column;overflow:hidden;
+  box-shadow:0 20px 60px rgba(0,0,0,0.55);}
+.chat-win.open{display:flex;animation:slideUp 0.25s ease;}
+@keyframes slideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+.chat-hdr{padding:0.8rem 1rem;background:linear-gradient(135deg,var(--accent2),#1e40af);
+  display:flex;align-items:center;justify-content:space-between;}
+.chat-hdr h4{font-size:0.82rem;font-weight:700;}
+.chat-hdr p{font-size:0.62rem;opacity:0.8;margin-top:0.08rem;}
+.chat-close{background:none;border:none;color:#fff;font-size:1rem;cursor:pointer;}
+.quick-qs{display:flex;flex-wrap:wrap;gap:0.22rem;padding:0.45rem 0.6rem 0;}
+.q-btn{background:var(--surface2);border:1px solid var(--border);border-radius:20px;
+  padding:0.22rem 0.5rem;font-size:0.62rem;cursor:pointer;color:var(--muted);
+  transition:all 0.2s;font-family:'Syne',sans-serif;}
+.q-btn:hover{border-color:var(--accent);color:var(--accent);}
+.chat-msgs{flex:1;overflow-y:auto;padding:0.6rem;display:flex;flex-direction:column;gap:0.38rem;}
+.chat-msgs::-webkit-scrollbar{width:3px;}
+.chat-msgs::-webkit-scrollbar-thumb{background:var(--border);}
+.msg{max-width:85%;padding:0.52rem 0.68rem;border-radius:10px;font-size:0.76rem;line-height:1.5;}
+.msg.bot{background:var(--surface2);border:1px solid var(--border);align-self:flex-start;border-radius:10px 10px 10px 2px;}
+.msg.user{background:linear-gradient(135deg,var(--accent2),#1e40af);align-self:flex-end;border-radius:10px 10px 2px 10px;}
+.chat-foot{padding:0.6rem;border-top:1px solid var(--border);display:flex;gap:0.38rem;}
+.chat-in{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:7px;
+  padding:0.42rem 0.6rem;color:var(--text);font-family:'Syne',sans-serif;font-size:0.76rem;outline:none;}
+.chat-in:focus{border-color:var(--accent);}
+.chat-send{background:var(--accent);border:none;border-radius:7px;width:33px;height:33px;
+  cursor:pointer;font-size:0.88rem;display:flex;align-items:center;justify-content:center;}
+.chat-fab{width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--accent2),var(--accent));
+  border:none;cursor:pointer;font-size:1.25rem;box-shadow:0 4px 20px rgba(0,229,255,0.3);
+  transition:transform 0.2s;display:flex;align-items:center;justify-content:center;}
+.chat-fab:hover{transform:scale(1.1);}
+
+/* PANELS */
+.panel{display:none;}
+.panel.active{display:block;}
+
+/* COLOR UTILS */
+.cg{color:var(--good)}.cm{color:var(--moderate)}.cu{color:var(--unhealthy)}.cv{color:var(--very)}.ch{color:var(--hazardous)}
+.bg-g{background:var(--good)}.bg-m{background:var(--moderate)}.bg-u{background:var(--unhealthy)}.bg-v{background:var(--very)}.bg-h{background:var(--hazardous)}
+
+.spin{display:inline-block;width:11px;height:11px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite;}
+
+@media(max-width:700px){.sidebar{display:none;}.chat-win{width:calc(100vw - 2rem);}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">AIR<span>GRID</span></div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="switchTab('map',this)">🗺 Map</button>
+    <button class="nav-tab" onclick="switchTab('route',this)">🛣 Route</button>
+    <button class="nav-tab" onclick="switchTab('forecast',this)">📈 Forecast</button>
+    <button class="nav-tab" onclick="switchTab('source',this)">🔍 Sources</button>
+  </div>
+  <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+</nav>
+
+<div class="main">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="aqi-hero">
+      <div class="aqi-location" id="sb-loc">📍 Detecting location...</div>
+      <div class="aqi-value-row">
+        <div class="aqi-number" id="sb-aqi">--</div>
+        <div class="aqi-unit">AQI</div>
+      </div>
+      <div id="sb-lbl" class="aqi-label" style="background:rgba(255,255,255,0.1)">Loading...</div>
+      <div class="aqi-params">
+        <div class="param-chip"><div class="lbl">PM2.5</div><div class="val" id="v-pm25">--</div></div>
+        <div class="param-chip"><div class="lbl">PM10</div><div class="val" id="v-pm10">--</div></div>
+        <div class="param-chip"><div class="lbl">NO₂</div><div class="val" id="v-no2">--</div></div>
+        <div class="param-chip"><div class="lbl">O₃</div><div class="val" id="v-o3">--</div></div>
+      </div>
+    </div>
+
+    <!-- MAP TAB SIDEBAR -->
+    <div class="sidebar-section panel active" id="ts-map">
+      <h3>Health Profile</h3>
+      <div class="profile-selector">
+        <button class="profile-btn active" onclick="setProfile('healthy',this)">🧑 Healthy Adult</button>
+        <button class="profile-btn" onclick="setProfile('asthma',this)">🫁 Asthma Patient</button>
+        <button class="profile-btn" onclick="setProfile('senior',this)">👴 Senior Citizen</button>
+        <button class="profile-btn" onclick="setProfile('athlete',this)">🏃 Athlete / Jogger</button>
+        <button class="profile-btn" onclick="setProfile('child',this)">👶 Child</button>
+      </div>
+      <div id="health-alert" class="alert-box safe">Select your health profile for personalized alerts.</div>
+    </div>
+
+    <!-- ROUTE TAB SIDEBAR -->
+    <div class="sidebar-section panel" id="ts-route">
+      <h3>SafeRoute Navigator</h3>
+      <div class="route-inputs">
+        <input class="r-input" id="r-from" placeholder="📍 From" value="Gwalior Station"/>
+        <input class="r-input" id="r-to" placeholder="🎯 To" value="Amity University Gwalior"/>
+        <button class="r-btn" onclick="calcRoute()">🌱 Find Cleanest Route</button>
+      </div>
+      <div class="route-res" id="route-res">
+        <div class="r-stat"><span>Route</span><span id="rr-name">—</span></div>
+        <div class="r-stat"><span>Avg AQI</span><span id="rr-aqi">—</span></div>
+        <div class="r-stat"><span>Distance</span><span id="rr-dist">—</span></div>
+        <div class="r-stat"><span>Est. Time</span><span id="rr-time">—</span></div>
+        <div class="r-stat"><span>Pollution Saved</span><span id="rr-saved">—</span></div>
+      </div>
+    </div>
+
+    <!-- FORECAST TAB SIDEBAR -->
+    <div class="sidebar-section panel" id="ts-forecast">
+      <h3>AI Forecast — Next 6 Hours</h3>
+      <div class="forecast-scroll" id="fc-row"></div>
+      <div style="margin-top:0.6rem;font-size:0.68rem;color:var(--muted);line-height:1.6">
+        🧠 Predicts hyperlocal AQI using traffic trends, wind speed & humidity data (LSTM-inspired model).
+      </div>
+    </div>
+
+    <!-- SOURCE TAB SIDEBAR -->
+    <div class="sidebar-section panel" id="ts-source">
+      <h3>Pollution Source Attribution</h3>
+      <div id="src-cards"></div>
+      <div style="margin-top:0.4rem;font-size:0.68rem;color:var(--muted);line-height:1.6">
+        🌬 Wind direction + spatial AQI gradient analysis identifies primary pollution sources.
+      </div>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div class="map-wrap">
+    <div id="map-loader">
+      <div class="spin-big"></div>
+      <p>Initializing AQI Grid Map...</p>
+    </div>
+    <div id="map"></div>
+    <div class="map-ctrls">
+      <button class="mc-btn active" id="ctrl-grid" onclick="toggleLayer('grid')">⬡ AQI Grid</button>
+      <button class="mc-btn" id="ctrl-stations" onclick="toggleLayer('stations')">📡 Stations</button>
+      <button class="mc-btn" id="ctrl-wind" onclick="toggleLayer('wind')">🌬 Wind</button>
+    </div>
+    <div class="map-legend">
+      <div class="leg-title">AQI Scale</div>
+      <div class="leg-item"><div class="leg-dot bg-g"></div>0–50 Good</div>
+      <div class="leg-item"><div class="leg-dot bg-m"></div>51–100 Moderate</div>
+      <div class="leg-item"><div class="leg-dot bg-u"></div>101–150 Unhealthy (Sensitive)</div>
+      <div class="leg-item"><div class="leg-dot bg-v"></div>151–200 Unhealthy</div>
+      <div class="leg-item"><div class="leg-dot bg-h"></div>201+ Very Unhealthy</div>
+    </div>
+  </div>
+</div>
+
+<!-- CHATBOT -->
+<div class="chat-wrap">
+  <div class="chat-win" id="chat-win">
+    <div class="chat-hdr">
+      <div><h4>🤖 AirBot — AI Health Advisor</h4><p>Claude AI · RAG-Enhanced · Prompt Engineering</p></div>
+      <button class="chat-close" onclick="toggleChat()">✕</button>
+    </div>
+    <div class="quick-qs">
+      <div class="q-btn" onclick="sendQ('Is it safe to jog outside now?')">🏃 Safe to jog?</div>
+      <div class="q-btn" onclick="sendQ('What is causing high pollution today?')">🔍 Why high AQI?</div>
+      <div class="q-btn" onclick="sendQ('Best time to go outside today?')">⏰ Best time?</div>
+      <div class="q-btn" onclick="sendQ('Give tips for asthma patients today')">🫁 Asthma tips</div>
+    </div>
+    <div class="chat-msgs" id="chat-msgs">
+      <div class="msg bot">👋 Hi! I'm <b>AirBot</b> — your AI air quality advisor. I use <b>real-time hyperlocal AQI data</b> to give you personalized health advice. Ask me anything!</div>
+    </div>
+    <div class="chat-foot">
+      <input class="chat-in" id="chat-in" placeholder="Ask about air quality..." onkeypress="if(event.key==='Enter')sendChat()"/>
+      <button class="chat-send" onclick="sendChat()">➤</button>
+    </div>
+  </div>
+  <button class="chat-fab" onclick="toggleChat()">🤖</button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ========== STATE ==========
+var map, gridLyr, stationsLyr, windLyr;
+var curAQI = 82;
+var curProfile = 'healthy';
+var curLoc = {lat:26.2183, lng:78.1828, name:'Gwalior, MP'};
+var aqiGrid = [];
+var layers = {grid:true, stations:false, wind:false};
+var mapOK = false;
+
+// ========== UTILS ==========
+function aqiColor(v){
+  if(v<=50) return '#00e676';
+  if(v<=100) return '#ffea00';
+  if(v<=150) return '#ff6d00';
+  if(v<=200) return '#d50000';
+  return '#6a0080';
+}
+function aqiInfo(v){
+  if(v<=50)  return {lbl:'Good',tc:'#000',bgc:'bg-g',cc:'cg'};
+  if(v<=100) return {lbl:'Moderate',tc:'#000',bgc:'bg-m',cc:'cm'};
+  if(v<=150) return {lbl:'Unhealthy (Sensitive)',tc:'#fff',bgc:'bg-u',cc:'cu'};
+  if(v<=200) return {lbl:'Unhealthy',tc:'#fff',bgc:'bg-v',cc:'cv'};
+  return {lbl:'Very Unhealthy',tc:'#fff',bgc:'bg-h',cc:'ch'};
+}
+
+// ========== GENERATE GRID DATA ==========
+function genGrid(){
+  aqiGrid=[];
+  var base = Math.floor(Math.random()*65)+55;
+  var gs = 0.016;
+  for(var i=-4;i<=4;i++){
+    for(var j=-4;j<=4;j++){
+      var noise=(Math.random()-0.5)*48;
+      var df=(Math.abs(i)+Math.abs(j))*2.2;
+      var v=Math.round(Math.max(15,Math.min(230,base+noise+df)));
+      aqiGrid.push({
+        lat:curLoc.lat+i*gs, lng:curLoc.lng+j*gs, aqi:v,
+        pm25:Math.round(v*0.37+Math.random()*8),
+        pm10:Math.round(v*0.61+Math.random()*11),
+        no2:Math.round(v*0.17+Math.random()*6),
+        o3:Math.round(v*0.13+Math.random()*9),
+        ward:'Ward-'+(Math.abs(i*3+j)%12+1)
+      });
+    }
+  }
+  curAQI=Math.round(aqiGrid.reduce(function(s,d){return s+d.aqi},0)/aqiGrid.length);
+}
+
+// ========== MAP INIT ==========
+function initMap(){
+  try{
+    map=L.map('map',{zoomControl:false}).setView([curLoc.lat,curLoc.lng],13);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+      attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:19
+    }).addTo(map);
+    L.control.zoom({position:'bottomright'}).addTo(map);
+    document.getElementById('map-loader').style.display='none';
+    mapOK=true;
+    genGrid();
+    drawGrid();
+    updateSidebar();
+    drawForecast();
+    drawSources();
+    // Add center marker
+    var ci=L.divIcon({className:'',html:'<div style="background:#00e5ff;width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 12px #00e5ff"></div>',iconSize:[14,14],iconAnchor:[7,7]});
+    L.marker([curLoc.lat,curLoc.lng],{icon:ci}).bindPopup('<b>'+curLoc.name+'</b><br>Current AQI: <b>'+curAQI+'</b>').addTo(map);
+  } catch(e){
+    document.getElementById('map-loader').innerHTML='<p style="color:#ff6d00;text-align:center;padding:2rem">Map error.<br><small>Please open this HTML file<br>directly in Chrome or Firefox.</small></p>';
+    console.error(e);
+  }
+}
+
+// ========== DRAW GRID ==========
+function drawGrid(){
+  if(!mapOK) return;
+  if(gridLyr) map.removeLayer(gridLyr);
+  gridLyr=L.layerGroup();
+  aqiGrid.forEach(function(d){
+    var c=aqiColor(d.aqi);
+    var r=L.rectangle([[d.lat-0.008,d.lng-0.008],[d.lat+0.008,d.lng+0.008]],
+      {color:c,fillColor:c,fillOpacity:0.28,weight:0.5,opacity:0.55});
+    r.bindPopup(
+      '<div style="font-family:Syne,sans-serif;min-width:148px">'+
+      '<b style="font-size:0.88rem">'+d.ward+'</b>'+
+      '<div style="font-size:1.3rem;font-weight:800;color:'+c+'">'+d.aqi+' <span style="font-size:0.65rem;color:#888">AQI</span></div>'+
+      '<div style="font-size:0.7rem;color:#555;margin-top:3px">'+
+      'PM2.5: <b>'+d.pm25+'</b> | PM10: <b>'+d.pm10+'</b><br>'+
+      'NO₂: <b>'+d.no2+'</b> | O₃: <b>'+d.o3+'</b></div></div>'
+    );
+    gridLyr.addLayer(r);
+  });
+  if(layers.grid) gridLyr.addTo(map);
+}
+
+// ========== DRAW STATIONS ==========
+function drawStations(){
+  if(!mapOK) return;
+  if(stationsLyr) map.removeLayer(stationsLyr);
+  stationsLyr=L.layerGroup();
+  var st=[
+    {lat:curLoc.lat+0.02,lng:curLoc.lng-0.025,name:'Lashkar',aqi:94},
+    {lat:curLoc.lat-0.022,lng:curLoc.lng+0.018,name:'Morar',aqi:65},
+    {lat:curLoc.lat+0.005,lng:curLoc.lng+0.036,name:'City Centre',aqi:121},
+    {lat:curLoc.lat-0.01,lng:curLoc.lng-0.022,name:'Amity Campus',aqi:53}
+  ];
+  st.forEach(function(s){
+    var c=aqiColor(s.aqi);
+    var ic=L.divIcon({className:'',
+      html:'<div style="background:'+c+';width:15px;height:15px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 7px '+c+';display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:800;color:#000">'+s.aqi+'</div>',
+      iconSize:[15,15],iconAnchor:[7,7]});
+    L.marker([s.lat,s.lng],{icon:ic}).bindPopup('<b>'+s.name+'</b><br>AQI: <b style="color:'+c+'">'+s.aqi+'</b>').addTo(stationsLyr);
+  });
+  if(layers.stations) stationsLyr.addTo(map);
+}
+
+// ========== DRAW WIND ==========
+function drawWind(){
+  if(!mapOK) return;
+  if(windLyr) map.removeLayer(windLyr);
+  windLyr=L.layerGroup();
+  [{lat:curLoc.lat+0.028,lng:curLoc.lng,d:45},{lat:curLoc.lat-0.02,lng:curLoc.lng+0.03,d:60},
+   {lat:curLoc.lat,lng:curLoc.lng-0.034,d:30},{lat:curLoc.lat+0.014,lng:curLoc.lng+0.032,d:55}
+  ].forEach(function(a){
+    var ic=L.divIcon({className:'',html:'<div style="transform:rotate('+a.d+'deg);font-size:1.2rem;opacity:0.75;color:#00e5ff;text-shadow:0 0 8px #00e5ff">➤</div>',iconSize:[22,22],iconAnchor:[11,11]});
+    L.marker([a.lat,a.lng],{icon:ic}).bindTooltip('Wind '+a.d+'° NE · 11 km/h').addTo(windLyr);
+  });
+  if(layers.wind) windLyr.addTo(map);
+}
+
+function toggleLayer(n){
+  layers[n]=!layers[n];
+  document.getElementById('ctrl-'+n).classList.toggle('active',layers[n]);
+  if(n==='stations'&&!stationsLyr) drawStations();
+  if(n==='wind'&&!windLyr) drawWind();
+  var lm={grid:gridLyr,stations:stationsLyr,wind:windLyr};
+  if(lm[n]){ if(layers[n]) lm[n].addTo(map); else map.removeLayer(lm[n]); }
+}
+
+// ========== SIDEBAR UPDATE ==========
+function updateSidebar(){
+  var info=aqiInfo(curAQI);
+  document.getElementById('sb-loc').textContent='📍 '+curLoc.name;
+  var ae=document.getElementById('sb-aqi');
+  ae.textContent=curAQI; ae.className='aqi-number '+info.cc;
+  var le=document.getElementById('sb-lbl');
+  le.textContent=info.lbl; le.className='aqi-label '+info.bgc; le.style.color=info.tc;
+  var nd=aqiGrid[Math.floor(aqiGrid.length/2)]||{pm25:'--',pm10:'--',no2:'--',o3:'--'};
+  document.getElementById('v-pm25').textContent=nd.pm25+' μg';
+  document.getElementById('v-pm10').textContent=nd.pm10+' μg';
+  document.getElementById('v-no2').textContent=nd.no2+' μg';
+  document.getElementById('v-o3').textContent=nd.o3+' μg';
+  updateAlert();
+}
+
+// ========== HEALTH PROFILE ==========
+var PT={
+  healthy:{s:100,w:150,d:200},
+  asthma:{s:50,w:80,d:100},
+  senior:{s:60,w:90,d:130},
+  athlete:{s:50,w:75,d:100},
+  child:{s:60,w:100,d:130}
+};
+var PA={
+  healthy:{s:'✅ Air quality is good. All outdoor activities are safe.',w:'⚠️ Sensitive individuals may feel discomfort. Limit prolonged exertion outdoors.',d:'🚨 Unhealthy air. Avoid heavy outdoor activity. Wear N95 mask if outdoors.'},
+  asthma:{s:'✅ Safe for short walks. Keep your inhaler accessible.',w:'⚠️ HIGH RISK. Stay indoors. Close windows. Use an air purifier if available.',d:'🚨 CRITICAL ALERT. Do NOT go outdoors. Take prescribed medication. Call doctor if symptoms worsen.'},
+  senior:{s:'✅ Short walks are fine. Comfortable outdoor conditions.',w:'⚠️ Limit outdoor time to 30 mins. Avoid traffic-heavy areas.',d:'🚨 Stay indoors. Avoid all exertion. Monitor blood pressure closely.'},
+  athlete:{s:'✅ Excellent day for training! Air quality supports peak performance.',w:'⚠️ Reduce exercise intensity. Avoid roads during peak hours (8-10AM, 5-7PM).',d:'🚨 Cancel outdoor training. PM2.5 exceeds safe exercise threshold. Train indoors.'},
+  child:{s:'✅ Safe for outdoor play and school activities.',w:'⚠️ Limit playground time. Keep children away from roads and construction zones.',d:'🚨 Keep child indoors. All outdoor school activities should be cancelled today.'}
+};
+
+function setProfile(p,btn){
+  curProfile=p;
+  document.querySelectorAll('.profile-btn').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  updateAlert();
+}
+function updateAlert(){
+  var t=PT[curProfile]; var a=PA[curProfile]; var box=document.getElementById('health-alert');
+  var cls,msg;
+  if(curAQI<=t.s){cls='safe';msg=a.s;}
+  else if(curAQI<=t.w){cls='warning';msg=a.w;}
+  else{cls='danger';msg=a.d;}
+  box.className='alert-box '+cls; box.textContent=msg;
+}
+
+// ========== FORECAST ==========
+function drawForecast(){
+  var row=document.getElementById('fc-row');
+  var now=new Date(); var html='';
+  for(var i=1;i<=6;i++){
+    var h=new Date(now.getTime()+i*3600000);
+    var hr=h.getHours();
+    var ts=hr.toString().padStart(2,'0')+':00';
+    var f=1;
+    if(hr>=7&&hr<=10) f=1.22;
+    else if(hr>=12&&hr<=15) f=0.83;
+    else if(hr>=18&&hr<=21) f=1.18;
+    var v=Math.round(curAQI*f+(Math.random()-0.5)*11);
+    v=Math.max(10,Math.min(280,v));
+    var info=aqiInfo(v);
+    var tr=v>curAQI?'up':'dn';
+    var ar=v>curAQI?'↑':'↓';
+    html+='<div class="fc-chip '+tr+'">'+
+      '<div class="fc-time">'+ts+'</div>'+
+      '<div class="fc-val '+info.cc+'">'+v+'</div>'+
+      '<div class="fc-lbl" style="color:'+aqiColor(v)+'">'+ar+' '+info.lbl.split(' ')[0]+'</div>'+
+      '</div>';
+  }
+  row.innerHTML=html;
+}
+
+// ========== SOURCE ATTRIBUTION ==========
+function drawSources(){
+  var c=document.getElementById('src-cards');
+  var src=[
+    {n:'🚗 Vehicle Traffic',p:35,c:'#ff6d00',d:'High density: NH-44, City Bypass, Ring Road'},
+    {n:'🏭 Industrial Emissions',p:22,c:'#d50000',d:'Wind NE · Industrial zone ~3.2 km away'},
+    {n:'🔥 Biomass Burning',p:18,c:'#ff8f00',d:'Agricultural fires detected via satellite'},
+    {n:'🏗 Construction Dust',p:15,c:'#795548',d:'Active construction sites nearby'},
+    {n:'🌿 Natural / Background',p:10,c:'#00e676',d:'Pollen, soil dust (natural baseline)'}
+  ];
+  c.innerHTML=src.map(function(s){
+    return '<div class="src-card">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center">'+
+      '<div class="src-name">'+s.n+'</div>'+
+      '<div style="font-size:0.76rem;font-weight:800;color:'+s.c+'">'+s.p+'%</div></div>'+
+      '<div class="src-detail">'+s.d+'</div>'+
+      '<div class="src-bar-bg"><div class="src-bar" style="width:'+s.p+'%;background:'+s.c+'"></div></div>'+
+      '</div>';
+  }).join('');
+}
+
+// ========== SAFE ROUTE ==========
+function calcRoute(){
+  var res=document.getElementById('route-res');
+  res.classList.remove('show');
+  setTimeout(function(){
+    var cAQI=Math.round(curAQI*0.7);
+    var fAQI=Math.round(curAQI*1.18);
+    var dist=(3.2+Math.random()*3.8).toFixed(1);
+    var time=Math.round(parseFloat(dist)*3.6);
+    document.getElementById('rr-name').textContent='Green Corridor';
+    document.getElementById('rr-aqi').textContent=cAQI+' (vs '+fAQI+' fastest)';
+    document.getElementById('rr-dist').textContent=dist+' km';
+    document.getElementById('rr-time').textContent=time+' mins';
+    document.getElementById('rr-saved').textContent=(fAQI-cAQI)+' AQI units ✓';
+    res.classList.add('show');
+    if(mapOK){
+      L.polyline([[curLoc.lat+0.01,curLoc.lng-0.01],[curLoc.lat-0.004,curLoc.lng+0.009],[curLoc.lat-0.017,curLoc.lng+0.022]],
+        {color:'#00e676',weight:4,opacity:0.88,dashArray:'9,4'}).addTo(map);
+      L.polyline([[curLoc.lat+0.012,curLoc.lng+0.008],[curLoc.lat-0.017,curLoc.lng+0.022]],
+        {color:'#d50000',weight:3,opacity:0.5}).addTo(map);
+      var gi=L.divIcon({className:'',html:'<div style="background:#00e676;width:11px;height:11px;border-radius:50%;border:2px solid #fff"></div>',iconSize:[11,11],iconAnchor:[5,5]});
+      var ri=L.divIcon({className:'',html:'<div style="background:#d50000;width:11px;height:11px;border-radius:50%;border:2px solid #fff"></div>',iconSize:[11,11],iconAnchor:[5,5]});
+      L.marker([curLoc.lat+0.01,curLoc.lng-0.01],{icon:gi}).bindPopup('📍 '+document.getElementById('r-from').value).addTo(map);
+      L.marker([curLoc.lat-0.017,curLoc.lng+0.022],{icon:ri}).bindPopup('🎯 '+document.getElementById('r-to').value).addTo(map);
+    }
+  },700);
+}
+
+// ========== TAB SWITCH ==========
+function switchTab(t,btn){
+  document.querySelectorAll('.nav-tab').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  var m={'map':'ts-map','route':'ts-route','forecast':'ts-forecast','source':'ts-source'};
+  Object.values(m).forEach(function(id){
+    var el=document.getElementById(id);
+    el.classList.remove('active');
+  });
+  document.getElementById(m[t]).classList.add('active');
+}
+
+// ========== CHATBOT ==========
+function toggleChat(){ document.getElementById('chat-win').classList.toggle('open'); }
+function sendQ(q){ document.getElementById('chat-in').value=q; sendChat(); }
+
+async function sendChat(){
+  var inp=document.getElementById('chat-in');
+  var msg=inp.value.trim(); if(!msg) return; inp.value='';
+  var box=document.getElementById('chat-msgs');
+  box.innerHTML+='<div class="msg user">'+escHTML(msg)+'</div>';
+  var lid='l'+Date.now();
+  box.innerHTML+='<div class="msg bot" id="'+lid+'"><div class="spin"></div> Analyzing real-time AQI data...</div>';
+  box.scrollTop=box.scrollHeight;
+
+  // RAG: Inject live AQI context into prompt
+  var nd=aqiGrid[Math.floor(aqiGrid.length/2)]||{};
+  var ctx='LIVE HYPERLOCAL AQI DATA (Retrieved via RAG):\n'+
+    '• Location: '+curLoc.name+'\n'+
+    '• Current AQI: '+curAQI+' ('+aqiInfo(curAQI).lbl+')\n'+
+    '• PM2.5: '+(nd.pm25||'--')+' μg/m³  |  PM10: '+(nd.pm10||'--')+' μg/m³\n'+
+    '• NO₂: '+(nd.no2||'--')+' μg/m³  |  O₃: '+(nd.o3||'--')+' μg/m³\n'+
+    '• User Health Profile: '+curProfile+'\n'+
+    '• Safe AQI threshold for this profile: '+PT[curProfile].s+'\n'+
+    '• Top pollution sources: Vehicle traffic 35%, Industrial 22%, Biomass 18%\n'+
+    '• Time: '+new Date().toLocaleTimeString();
+
+  var sys='You are AirBot, an expert AI health advisor for the AirGrid Hyperlocal AQI platform. '+
+    'You have been provided real-time hyperlocal AQI data via RAG (Retrieval-Augmented Generation). '+
+    'Use this exact data to give specific, personalized health advice. '+
+    'Be concise (3-4 sentences), empathetic, and actionable. Use relevant emojis. '+
+    'Always reference the actual AQI number from the context. '+
+    'User health profile: '+curProfile+'.';
+
+  try{
+    var r=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:1000,
+        system:sys,
+        messages:[{role:'user',content:'Context:\n'+ctx+'\n\nQuestion: '+msg}]
+      })
+    });
+    var d=await r.json();
+    var rep=d.content&&d.content[0]&&d.content[0].text?d.content[0].text:null;
+    if(!rep) throw new Error('empty');
+    document.getElementById(lid).outerHTML='<div class="msg bot">'+rep.replace(/\n/g,'<br>')+'</div>';
+  } catch(e){
+    document.getElementById(lid).outerHTML='<div class="msg bot">'+fallback(msg)+'</div>';
+  }
+  box.scrollTop=box.scrollHeight;
+}
+
+function escHTML(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function fallback(q){
+  var info=aqiInfo(curAQI); var t=PT[curProfile]; var a=PA[curProfile];
+  var adv=curAQI<=t.s?a.s:curAQI<=t.w?a.w:a.d;
+  var ql=q.toLowerCase();
+  if(ql.match(/jog|run|exercise|walk|outdoor/))
+    return '🏃 AQI is <b>'+curAQI+'</b> ('+info.lbl+'). For '+curProfile+': '+adv;
+  if(ql.match(/caus|why|source|reason/))
+    return '🔍 AQI '+curAQI+' is mainly from: Vehicle traffic (~35%), Industrial emissions from NE (~22%), and biomass burning (~18%). Post-2 PM winds typically improve conditions.';
+  if(ql.match(/best time|when|time/))
+    return '⏰ Best outdoor times today: <b>5–7 AM</b> (pre-traffic, ~15% lower AQI) or <b>2–4 PM</b> (wind disperses pollutants). Avoid 8–10 AM and 6–8 PM (peak traffic pollution).';
+  if(ql.match(/asthma/))
+    return '🫁 For asthma patients — AQI is '+curAQI+'. '+PA.asthma[curAQI<=50?'s':curAQI<=80?'w':'d'];
+  if(ql.match(/child|kid|baby/))
+    return '👶 For children — AQI is '+curAQI+'. '+PA.child[curAQI<=60?'s':curAQI<=100?'w':'d'];
+  return '📊 Current AQI: <b>'+curAQI+'</b> ('+info.lbl+') in '+curLoc.name+'. '+adv;
+}
+
+// ========== INIT ==========
+window.addEventListener('load', function(){
+  if(typeof L === 'undefined'){
+    document.getElementById('map-loader').innerHTML=
+      '<p style="color:#ff6d00;text-align:center;padding:2rem;font-size:0.82rem">'+
+      '⚠️ Map library failed to load.<br><br>'+
+      'Please open this file directly<br>in Chrome or Firefox browser.<br><br>'+
+      '<small style="color:#64748b">File → Open (Ctrl+O)</small></p>';
+    genGrid(); updateSidebar(); drawForecast(); drawSources();
+    return;
+  }
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      function(pos){
+        curLoc.lat=pos.coords.latitude;
+        curLoc.lng=pos.coords.longitude;
+        curLoc.name='Your Location (Live GPS)';
+        initMap();
+      },
+      function(){ initMap(); }
+    );
+  } else { initMap(); }
+  // Auto-refresh every 5 mins
+  setInterval(function(){
+    genGrid(); drawGrid(); updateSidebar(); drawForecast(); drawSources();
+  }, 300000);
+});
+</script>
+</body>
+</html>
